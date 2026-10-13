@@ -1,7 +1,7 @@
 %% PID Thermal Control for Heavy-Duty Trucks
 % Keeps the engine coolant temperature T_c at 90 °C.
-% Part A : MATLAB  - transfer functions, step response, P vs PI vs PID
-% Part B : Simulink - the same closed loop, built automatically
+% Transfer functions, step response, P vs PI vs PID
+% (The Simulink model is built by hand from the same numbers)
 % Sushanth Bibi (24BME0501), Ganishk Mohanraj (24BME0500)
 
 clc;
@@ -136,86 +136,3 @@ disp('Split range: 0-1 valve, 1-2 pump, 2-3 fan');
 % (T_c returns to exactly 90 °C). Adding D lowers the peak and the
 % overshoot. All closed-loop poles lie in the left half of the s-plane,
 % so all three loops are stable.
-
-%% Part B : Simulink model of the same loop
-% Builds pid_truck_cooling_sim.slx, runs it and opens the Scope.
-% Load step 30 -> 80 % at 600 s, set-point step 90 -> 95 °C at 1200 s.
-% The PID block limits its output to 0-3 and uses clamping anti-windup.
-build_simulink = true;     % set false to skip Part B
-
-if build_simulink
-    mdl = 'pid_truck_cooling_sim';
-    if bdIsLoaded(mdl), close_system(mdl, 0); end
-    new_system(mdl);
-    open_system(mdl);
-
-    % Set-point: 90 °C, steps to 95 °C at 1200 s
-    add_block('simulink/Sources/Step', [mdl '/Set-point'], ...
-        'Time', '1200', 'Before', num2str(T_ref), 'After', num2str(T_ref + dT), ...
-        'Position', [30 95 70 125]);
-
-    % Error e = T_c - T_ref
-    add_block('simulink/Math Operations/Sum', [mdl '/Error'], ...
-        'Inputs', '+-', 'IconShape', 'round', 'Position', [130 100 150 120]);
-
-    % PID controller (output is the change in cooling command)
-    add_block('simulink/Continuous/PID Controller', [mdl '/PID'], ...
-        'Controller', 'PID', 'P', num2str(Kp), 'I', num2str(Ki), 'D', num2str(Kd), ...
-        'N', num2str(1/Tf), 'LimitOutput', 'on', ...
-        'UpperSaturationLimit', num2str(3 - y0), 'LowerSaturationLimit', num2str(-y0), ...
-        'AntiWindupMode', 'clamping', 'Position', [200 90 260 130]);
-
-    % Cooling path: more cooling -> lower T_c (minus sign)
-    add_block('simulink/Continuous/Transfer Fcn', [mdl '/Cooling G(s)'], ...
-        'Numerator', mat2str(-num), 'Denominator', mat2str(den), ...
-        'Position', [320 90 420 130]);
-
-    % Engine load disturbance: +50 % at 600 s
-    add_block('simulink/Sources/Step', [mdl '/Load change'], ...
-        'Time', '600', 'Before', '0', 'After', num2str(dL), ...
-        'Position', [200 180 240 210]);
-    add_block('simulink/Continuous/Transfer Fcn', [mdl '/Load Gd(s)'], ...
-        'Numerator', mat2str(numd), 'Denominator', mat2str(dend), ...
-        'Position', [320 175 420 215]);
-
-    % Operating point 90 °C
-    add_block('simulink/Sources/Constant', [mdl '/Operating point'], ...
-        'Value', num2str(T_ref), 'Position', [320 250 380 280]);
-
-    % T_c = 90 + cooling effect + load effect
-    add_block('simulink/Math Operations/Sum', [mdl '/Plant sum'], ...
-        'Inputs', '+++', 'Position', [480 95 500 275]);
-
-    % Actual cooling command y = y0 + PID output (for the scope)
-    add_block('simulink/Math Operations/Bias', [mdl '/Command y'], ...
-        'Bias', num2str(y0), 'Position', [320 20 380 50]);
-
-    % Scope: input 1 = T_c and set-point, input 2 = cooling command
-    add_block('simulink/Signal Routing/Mux', [mdl '/Mux'], ...
-        'Inputs', '2', 'Position', [560 100 565 160]);
-    add_block('simulink/Sinks/Scope', [mdl '/Scope'], ...
-        'NumInputPorts', '2', 'Position', [620 40 660 160]);
-
-    % Connect the blocks
-    add_line(mdl, 'Set-point/1',       'Error/2',       'autorouting', 'on');
-    add_line(mdl, 'Error/1',           'PID/1',         'autorouting', 'on');
-    add_line(mdl, 'PID/1',             'Cooling G(s)/1', 'autorouting', 'on');
-    add_line(mdl, 'PID/1',             'Command y/1',   'autorouting', 'on');
-    add_line(mdl, 'Cooling G(s)/1',    'Plant sum/1',   'autorouting', 'on');
-    add_line(mdl, 'Load change/1',     'Load Gd(s)/1',  'autorouting', 'on');
-    add_line(mdl, 'Load Gd(s)/1',      'Plant sum/2',   'autorouting', 'on');
-    add_line(mdl, 'Operating point/1', 'Plant sum/3',   'autorouting', 'on');
-    add_line(mdl, 'Plant sum/1',       'Error/1',       'autorouting', 'on');  % feedback
-    add_line(mdl, 'Plant sum/1',       'Mux/1',         'autorouting', 'on');
-    add_line(mdl, 'Set-point/1',       'Mux/2',         'autorouting', 'on');
-    add_line(mdl, 'Mux/1',             'Scope/1',       'autorouting', 'on');
-    add_line(mdl, 'Command y/1',       'Scope/2',       'autorouting', 'on');
-
-    % Solver: fixed step 1 s, 30-minute drive
-    set_param(mdl, 'Solver', 'ode4', 'FixedStep', '1', 'StopTime', '1800');
-    save_system(mdl);
-
-    % Run and show the scope
-    sim(mdl);
-    open_system([mdl '/Scope']);
-end
