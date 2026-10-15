@@ -8,29 +8,82 @@ clc;
 clear;
 close all;
 
-%% Plant parameters (linearised around 90 °C and 30 % engine load)
-T_ref  = 90;     % set-point [°C]
-tau_c  = 60;     % engine + coolant time constant [s]
-tau_r  = 10;     % radiator time constant [s]
-K_cool = 20;     % fall in T_c for one unit of cooling command [K]
-K_load = 0.57;   % rise in T_c for 1 % more engine load [K/%]
-y0     = 0.8;    % cooling command at 90 °C and 30 % load (scale 0-3)
+%% Physical data (from published sources)
+% Volvo D13C460 fact sheet: 12.8 L heavy-duty truck engine
+P_rated = 338;     % rated power [kW] (460 hp)
+m_dry   = 1121;    % engine dry weight [kg]
+V_cool  = 38;      % total coolant volume [L]
+% Material properties (Engineering ToolBox)
+cp_cool = 3.5;     % 50/50 water-glycol specific heat [kJ/kg K]
+rho     = 1.04;    % 50/50 water-glycol density [kg/L]
+cp_iron = 0.46;    % cast iron specific heat [kJ/kg K]
+cp_al   = 0.91;    % aluminium specific heat [kJ/kg K]
+% Heavy-duty cooling module data (Worsztynowicz, 2017)
+Q_max   = 150;     % heat to coolant at max power [kW] (paper: 133-167)
+T_max   = 105;     % coolant temperature at that point [°C]
+T_hot   = 45;      % ambient temperature of that test [°C]
 
-%% PID gains (tuned by trial and error, same as the presentation)
-Kp = 0.3;        % proportional gain
-Ki = 0.006;      % integral gain
-Kd = 2.0;        % derivative gain
-Tf = 10;         % derivative filter time constant [s]
+%% Assumptions (not from a source, stated openly)
+T_ref = 90;        % set-point [°C]
+T_amb = 25;        % normal ambient temperature [°C]
+L0    = 30;        % normal engine load [%]
+f_m   = 0.5;       % share of engine mass that heats up with the coolant
+V_eng = 26;        % coolant inside the engine [L] (rest is in radiator + hoses)
+m_rad = 30;        % radiator core mass [kg]
+flow  = 250;       % pump flow [L/min] (inside the paper's range)
+% Heat to coolant is proportional to load, and the cooling
+% conductance grows linearly with the command y (0-3).
+
+%% Derive the plant constants (linearised energy balance)
+% Heat capacities [kJ/K]:  C = mass x specific heat
+C_c = V_eng*rho*cp_cool + f_m*m_dry*cp_iron;        % engine + its coolant
+C_r = (V_cool - V_eng)*rho*cp_cool + m_rad*cp_al;   % radiator + its coolant
+mcp = flow/60*rho*cp_cool;                          % coolant flow [kW/K]
+
+% Cooling conductance H = heat removed per K above ambient [kW/K]
+H_max = Q_max/(T_max - T_hot);          % full cooling (y = 3)
+q_L   = Q_max/100;                      % heat to coolant per % load [kW/%]
+H0    = q_L*L0/(T_ref - T_amb);         % needed at 90 °C and 30 % load
+y0    = 3*H0/H_max;                     % cooling command at that point
+
+% Time constants [s] and gains
+tau_c  = C_c/H0;                        % engine:   C / H
+tau_r  = C_r/mcp;                       % radiator: C / (m*cp)
+K_cool = (H_max/3)*(T_ref - T_amb)/H0;  % fall in T_c per unit of y [K]
+K_load = q_L/H0;                        % rise in T_c per % load [K/%]
+
+disp('--- Derived plant constants ---');
+disp(['tau_c  = ', num2str(tau_c,  '%6.0f'), ' s']);
+disp(['tau_r  = ', num2str(tau_r,  '%6.1f'), ' s']);
+disp(['K_cool = ', num2str(K_cool, '%6.1f'), ' K per unit']);
+disp(['K_load = ', num2str(K_load, '%6.2f'), ' K per %']);
+disp(['y0     = ', num2str(y0,     '%6.2f')]);
+
+%% PID gains from the SIMC tuning rule (Skogestad, 2003)
+% For k/((tau1*s+1)(tau2*s+1)) with no time delay:
+% Kc = tau1/(k*tau_cl),  tauI = min(tau1, 4*tau_cl),  tauD = tau2
+tau_cl = 20;                            % chosen closed-loop time constant [s]
+Kc   = tau_c/(K_cool*tau_cl);
+tauI = min(tau_c, 4*tau_cl);
+tauD = tau_r;
+% Convert from SIMC (series) form to the parallel form Kp + Ki/s + Kd*s
+Kp = Kc*(1 + tauD/tauI);
+Ki = Kp/(tauI + tauD);
+Kd = Kp*tauI*tauD/(tauI + tauD);
+Tf = 1;                                 % derivative filter time constant [s]
+
+disp(['Kp = ', num2str(Kp, '%6.3f'), '   Ki = ', num2str(Ki, '%7.4f'), '   Kd = ', num2str(Kd, '%5.2f')]);
+disp(' ');
 
 %% Define transfer functions of the plant
 % Cooling path: command y -> radiator -> engine coolant
 num = K_cool;
-den = conv([tau_c 1],[tau_r 1]);   % (60s+1)(10s+1)
+den = conv([tau_c 1],[tau_r 1]);   % (tau_c*s+1)(tau_r*s+1)
 G = tf(num, den)
 
 % Disturbance path: engine load -> engine coolant
 numd = K_load;
-dend = [tau_c 1];                  % (60s+1)
+dend = [tau_c 1];                  % (tau_c*s+1)
 Gd = tf(numd, dend)
 
 %% Define the three controllers
