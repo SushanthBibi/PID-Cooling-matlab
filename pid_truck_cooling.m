@@ -70,64 +70,54 @@ Ki = Kp/(tauI + tauD)               % = 0.044
 Kd = Kp*tauI*tauD/(tauI + tauD)     % = 22.4
 C = tf(Kp, 1) + tf(Ki, [1 0]) + tf([Kd 0], [0.01 1]);   % Kp + Ki/s + Kd*s
 
-%% Load goes from 30 % to 70 % at t = 0
-t = 0:0.5:1800;                 % 30 minutes
+%% Engine load: 30 % for 20 s, then rises linearly to 70 % over 60 s
+t = (0:0.5:1800)';              % 30 minutes
+t_ramp = 60;                    % time for the load to rise [s]
+dL = 40*min(max(t - 20, 0)/t_ramp, 1);   % change in load from 30 % [%]
+load_pct = 30 + dL;             % engine load [%]
 
 % Without PID: load -> temperature = Gd
-[T_noPID, t] = step(40*Gd, t);
+T_noPID = lsim(Gd, dL, t);
 
 % With PID: load -> temperature = Gd / (1 + C*G)
 D = Gd * feedback(1, C*G);
-[T_PID, t] = step(40*D, t);
+T_PID = lsim(D, dL, t);
 
-%% Add 100 s of steady running before the load step (t = 0)
-tp     = [-100; t(:)];
-Tp_no  = 90 + [0; T_noPID(:)];
-Tp_pid = 90 + [0; T_PID(:)];
-load_p = 30 + 40*(tp >= 0);        % engine load [%]: 30 before t = 0, 70 after
-
-%% Figure 1: no PID vs PID over 30 minutes
+%% Figure 1: 30 minutes
 figure;
-subplot(2,1,1);
-plot(tp, Tp_no, 'r', tp, Tp_pid, 'b', 'LineWidth', 2);
+yyaxis left;
+plot(t, 90 + T_noPID, 'r-', t, 90 + T_PID, 'b-', 'LineWidth', 2);
 hold on;
-plot(tp, 90*ones(size(tp)), 'k--');
-plot(tp, 105*ones(size(tp)), 'm:', 'LineWidth', 1.5);
+plot(t, 90*ones(size(t)), 'k--', t, 105*ones(size(t)), 'm:');
+ylabel('Coolant temperature (°C)');
+ylim([80 180]);
+yyaxis right;
+plot(t, load_pct, 'g-', 'LineWidth', 1.5);
+ylabel('Engine load (%)');
+ylim([0 100]);
 grid on;
-xlim([-100 1800]);
-ylim([80 220]);
+xlim([0 1800]);
 title('No PID vs PID');
-ylabel('Coolant temperature (°C)');
-legend('No PID', 'With PID', 'Set-point 90 °C', 'Limit 105 °C', 'Location', 'northwest');
-
-subplot(2,1,2);
-stairs(tp, load_p, 'g', 'LineWidth', 2);
-grid on;
-xlim([-100 1800]);
-ylim([0 100]);
 xlabel('Time (s)');
-ylabel('Engine load (%)');
+legend('No PID', 'With PID', 'Set-point 90 °C', 'Limit 105 °C', 'Engine load', 'Location', 'east');
 
-%% Figure 2: zoom on the moment the load changes
+%% Figure 2: zoom on the load increase
 figure;
-subplot(2,1,1);
-plot(tp, Tp_no, 'r', tp, Tp_pid, 'b', 'LineWidth', 2.5);
+yyaxis left;
+plot(t, 90 + T_noPID, 'r-', t, 90 + T_PID, 'b-', 'LineWidth', 2.5);
 hold on;
-plot(tp, 90*ones(size(tp)), 'k--');
-grid on;
-xlim([-20 150]);
-ylim([89.8 93]);
-title('Zoom: the moment the load goes up');
+plot(t, 90*ones(size(t)), 'k--');
 ylabel('Coolant temperature (°C)');
-legend('No PID', 'With PID', 'Set-point 90 °C', 'Location', 'east');
-
-subplot(2,1,2);
-stairs(tp, load_p, 'g', 'LineWidth', 2);
-grid on;
-xlim([-20 150]);
-ylim([0 100]);
-xlabel('Time (s)');
+ylim([89.8 93]);
+yyaxis right;
+plot(t, load_pct, 'g-', 'LineWidth', 1.5);
 ylabel('Engine load (%)');
+ylim([0 100]);
+grid on;
+xlim([0 200]);
+title('Zoom: while the load goes up');
+xlabel('Time (s)');
+legend('No PID', 'With PID', 'Set-point 90 °C', 'Engine load', 'Location', 'east');
 
 %% Results
 disp(['No PID:   temperature after 30 min = ', num2str(90 + T_noPID(end), '%5.1f'), ' °C']);
@@ -137,5 +127,6 @@ poles = pole(feedback(C*G, 1))   % all negative real parts -> stable
 
 % Inference:
 % Without a PID, the extra load keeps heating the engine: it passes the
-% 105 °C limit after about 3 minutes and keeps rising. With the PID, the temperature rises by less
-% than 1 °C and is brought back to exactly 90 °C in about 2 minutes.
+% 105 °C limit after about 4 minutes and keeps rising. With the PID, the
+% temperature rises by only 0.6 °C while the load goes up, and is back at
+% exactly 90 °C about 80 s after the load stops rising.
