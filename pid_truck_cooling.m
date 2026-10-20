@@ -2,26 +2,72 @@
 % How the coolant temperature changes when the engine load goes up,
 % first with no controller, then with a PID controller.
 % Sushanth Bibi (24BME0501), Ganishk Mohanraj (24BME0500)
+%
+% Sources
+% [1] Volvo Trucks, Fact sheet D13C460 EU5SCR-M, 2010
+% [2] G. S. Rosa et al., "Dimensioning procedure of coolant radiators for
+%     trucks and buses", COBEM 2009
+% [3] M. Mohamed et al., "Performance of electronically controlled
+%     automotive engine cooling system using PID and LQR control
+%     techniques", IOSR J. Engineering 8(6), 2018, pp. 16-25
+% [4] A. Haury, J. Volkering, "Modelisation of the engine coolant
+%     warming-up behavior", MSc thesis 2011:13, Chalmers
+% [5] Engineering ToolBox, specific heat and density tables
+% [6] S. Skogestad, "Simple analytic rules for model reduction and PID
+%     controller tuning", J. Process Control 13 (2003) 291-309
 
 clc;
 clear;
 close all;
 
-%% Plant (values from the references on the last slide)
+%% Data from the sources
+P     = 338;        % engine power [kW]                       [1]
+m_eng = 1121;       % engine dry weight [kg]                  [1]
+V_c   = 38;         % coolant volume [L]                      [1]
+V_o   = 33;         % oil volume [L]                          [1]
+cp_fe = 0.46;       % cast iron [kJ/kg K]                     [5]
+rho_w = 0.96531;    % water at 90 °C [kg/L]                   [5]
+cp_w  = 4.2053;     % water at 90 °C [kJ/kg K]                [5]
+rho_o = 0.900;      % lubricating oil [kg/L]                  [5]
+cp_o  = 1.67;       % mineral oil [kJ/kg K]                   [5]
+cp_a  = 1.006;      % air [kJ/kg K]                           [5]
+beta  = 0.5;        % heat to coolant / engine power (0.45-0.55) [2]
+m_w   = 3.25;       % coolant flow [kg/s]                     [2]
+T_w   = 100;        % radiator rating: water in [°C]          [2]
+T_a   = 30;         % radiator rating: air in [°C]            [2]
+% Fan air flow = where system curve meets fan curve, Fig. 6 of [2]:
+%   system: 25.105x^2 + 76.084x - 3.7131,   fan: -1.9147x^2 - 457.51x + 2945
+mf_max = max(roots([25.105+1.9147, 76.084+457.51, -3.7131-2945]));   % = 4.50 kg/s
+
+%% Transfer function numbers from the energy balance [3]
+% Block + coolant + oil as one mass [4]:
+%   C*dT/dt = Q_engine - eps*m_fan*cp_a*(T - T_a)
+C     = m_eng*cp_fe + V_c*rho_w*cp_w + V_o*rho_o*cp_o;   % heat capacity [kJ/K]
+eps   = beta*P/(mf_max*cp_a*(T_w - T_a));               % radiator effectiveness
+H     = beta*P*0.30/(90 - T_a);                         % heat removed per K at 90 °C, 30 % load [kW/K]
+tau_c = C/H;                                            % engine time constant [s]
+tau_r = V_c*rho_w/m_w;                                  % coolant loop time [s]
+K_fan = eps*cp_a*(90 - T_a)/H;                          % K per kg/s of fan air
+K_load = beta*P/100/H;                                  % K per % load
+
+%% Plant
 % Fan path:  fan air flow [kg/s] -> coolant temperature [K]
-num = 38.1;
-den = conv([851 1],[11.3 1]);   % (851s+1)(11.3s+1)
+num = K_fan;                        % = 38.1
+den = conv([tau_c 1],[tau_r 1]);    % (851s+1)(11.3s+1)
 G = tf(num, den)
 
 % Load path: engine load [%] -> coolant temperature [K]
-numd = 2.0;
-dend = [851 1];                 % (851s+1)
+numd = K_load;                      % = 2.0
+dend = [tau_c 1];                   % (851s+1)
 Gd = tf(numd, dend)
 
-%% PID controller (gains from the SIMC tuning rule)
-Kp = 2.48;
-Ki = 0.044;
-Kd = 22.4;
+%% PID controller (SIMC tuning rule [6])
+Kc   = tau_c/(K_fan*tau_r);
+tauI = min(tau_c, 4*tau_r);
+tauD = tau_r;
+Kp = Kc*(1 + tauD/tauI)             % = 2.48
+Ki = Kp/(tauI + tauD)               % = 0.044
+Kd = Kp*tauI*tauD/(tauI + tauD)     % = 22.4
 C = tf(Kp, 1) + tf(Ki, [1 0]) + tf([Kd 0], [0.01 1]);   % Kp + Ki/s + Kd*s
 
 %% Load goes from 30 % to 70 % at t = 0
