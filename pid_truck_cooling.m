@@ -80,36 +80,54 @@ t = 0:0.5:1800;                 % 30 minutes
 D = Gd * feedback(1, C*G);
 [T_PID, t] = step(40*D, t);
 
+%% Add 100 s of steady running before the load step (t = 0)
+tp     = [-100; t(:)];
+Tp_no  = 90 + [0; T_noPID(:)];
+Tp_pid = 90 + [0; T_PID(:)];
+load_p = 30 + 40*(tp >= 0);        % engine load [%]: 30 before t = 0, 70 after
+
 %% Figure 1: no PID vs PID over 30 minutes
 figure;
-plot(t, 90 + T_noPID, 'r', t, 90 + T_PID, 'b', 'LineWidth', 2);
+subplot(2,1,1);
+plot(tp, Tp_no, 'r', tp, Tp_pid, 'b', 'LineWidth', 2);
 hold on;
-plot(t, 90*ones(size(t)), 'k--');
-plot(t, 105*ones(size(t)), 'm:', 'LineWidth', 1.5);
+plot(tp, 90*ones(size(tp)), 'k--');
+plot(tp, 105*ones(size(tp)), 'm:', 'LineWidth', 1.5);
 grid on;
-title('Engine load 30 \rightarrow 70 %: no PID vs PID');
-xlabel('Time (s)');
+xlim([-100 1800]);
+ylim([80 220]);
+title('No PID vs PID');
 ylabel('Coolant temperature (°C)');
 legend('No PID', 'With PID', 'Set-point 90 °C', 'Limit 105 °C', 'Location', 'northwest');
 
-%% Figure 2: zoom on the moment the load changes
-% Add 20 s of steady running at 90 °C before the load step (t = 0)
-tz      = [-20; t(:)];
-Tz_no   = 90 + [0; T_noPID(:)];
-Tz_pid  = 90 + [0; T_PID(:)];
+subplot(2,1,2);
+stairs(tp, load_p, 'g', 'LineWidth', 2);
+grid on;
+xlim([-100 1800]);
+ylim([0 100]);
+xlabel('Time (s)');
+ylabel('Engine load (%)');
 
+%% Figure 2: zoom on the moment the load changes
 figure;
-plot(tz, Tz_no, 'r', tz, Tz_pid, 'b', 'LineWidth', 2.5);
+subplot(2,1,1);
+plot(tp, Tp_no, 'r', tp, Tp_pid, 'b', 'LineWidth', 2.5);
 hold on;
-plot(tz, 90*ones(size(tz)), 'k--');
-plot([0 0], [89.8 93], 'g', 'LineWidth', 1.5);          % load step
+plot(tp, 90*ones(size(tp)), 'k--');
 grid on;
 xlim([-20 150]);
 ylim([89.8 93]);
 title('Zoom: the moment the load goes up');
-xlabel('Time (s)');
 ylabel('Coolant temperature (°C)');
 legend('No PID', 'With PID', 'Set-point 90 °C', 'Location', 'east');
+
+subplot(2,1,2);
+stairs(tp, load_p, 'g', 'LineWidth', 2);
+grid on;
+xlim([-20 150]);
+ylim([0 100]);
+xlabel('Time (s)');
+ylabel('Engine load (%)');
 
 %% Results
 disp(['No PID:   temperature after 30 min = ', num2str(90 + T_noPID(end), '%5.1f'), ' °C']);
