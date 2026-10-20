@@ -46,18 +46,30 @@ xlabel('Time (s)');
 ylabel('Coolant temperature (°C)');
 legend('No PID', 'With PID', 'Set-point 90 °C', 'Limit 105 °C', 'Location', 'northwest');
 
-%% Figure 2: zoom on the first 5 minutes
+%% Figure 2: zoom on the moment the load changes
+% Add 20 s of steady running at 90 °C before the load step (t = 0)
+tz      = [-20; t(:)];
+Tz_no   = 90 + [0; T_noPID(:)];
+Tz_pid  = 90 + [0; T_PID(:)];
+[Tmax, k] = max(Tz_pid);
+
 figure;
-plot(t, 90 + T_noPID, 'r', t, 90 + T_PID, 'b', 'LineWidth', 2);
+plot(tz, Tz_no, 'r', tz, Tz_pid, 'b', 'LineWidth', 2.5);
 hold on;
-plot(t, 90*ones(size(t)), 'k--');
+plot(tz, 90*ones(size(tz)), 'k--');
+plot([0 0], [89.8 93], 'g', 'LineWidth', 1.5);          % load step
+plot(tz(k), Tmax, 'bo', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+text(2, 92.8, 'Load 30 \rightarrow 70 %', 'Color', [0 0.5 0]);
+text(tz(k) + 5, Tmax + 0.15, ['PID peak ', num2str(Tmax, '%5.2f'), ' °C'], 'Color', 'b');
+text(95, 89.9, 'PID: back to 90 °C', 'Color', 'b');
+text(35, 92.6, 'No PID: keeps rising', 'Color', 'r');
 grid on;
-xlim([0 300]);
-ylim([89.5 100]);
-title('Zoom: first 5 minutes');
+xlim([-20 150]);
+ylim([89.8 93]);
+title('Zoom: the moment the load goes up');
 xlabel('Time (s)');
 ylabel('Coolant temperature (°C)');
-legend('No PID', 'With PID', 'Set-point 90 °C', 'Location', 'northwest');
+legend('No PID', 'With PID', 'Set-point 90 °C', 'Location', 'east');
 
 %% Results
 disp(['No PID:   temperature after 30 min = ', num2str(90 + T_noPID(end), '%5.1f'), ' °C']);
