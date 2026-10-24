@@ -45,7 +45,7 @@ mf_max = max(roots([25.105+1.9147, 76.084+457.51, -3.7131-2945]));   % = 4.50 kg
 C_th  = m_eng*cp_fe + V_c*rho_w*cp_w + V_o*rho_o*cp_o;   % heat capacity [kJ/K]
 eff   = beta*P/(mf_max*cp_a*(T_w - T_a));               % radiator effectiveness
 H     = beta*P*0.30/(90 - T_a);                         % heat removed per K at 90 °C, 30 % load [kW/K]
-tau_c = C_th/H;                                            % engine time constant [s]
+tau_c = C_th/H;                                         % engine time constant [s]
 tau_r = V_c*rho_w/m_w;                                  % coolant loop time [s]
 K_fan = eff*cp_a*(90 - T_a)/H;                          % K per kg/s of fan air
 K_load = beta*P/100/H;                                  % K per % load
